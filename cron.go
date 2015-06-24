@@ -30,6 +30,12 @@ type Schedule interface {
 	Next(time.Time) time.Time
 }
 
+// Concurent control
+type SemaOfCron struct {
+	Ctrl bool
+	Sema *Semaphore
+}
+
 // Entry consists of a schedule and the func to execute on that schedule.
 type Entry struct {
 	// The schedule on which this job should be run.
@@ -45,6 +51,9 @@ type Entry struct {
 
 	// The Job to run.
 	Job Job
+
+	// Conturrent
+	Sema *SemaOfCron
 }
 
 // byTime is a wrapper for sorting the entry array by time
@@ -102,6 +111,37 @@ func (c *Cron) Schedule(schedule Schedule, cmd Job) {
 	entry := &Entry{
 		Schedule: schedule,
 		Job:      cmd,
+		Sema:     &SemaOfCron{Ctrl: false},
+	}
+	if !c.running {
+		c.entries = append(c.entries, entry)
+		return
+	}
+
+	c.add <- entry
+}
+
+// AddFunc adds a func to the Cron to be run on the given schedule.
+func (c *Cron) AddFuncCC(spec string, cmd func(), cc int) error {
+	return c.AddJobCC(spec, FuncJob(cmd), cc)
+}
+
+// AddFunc adds a Job to the Cron to be run on the given schedule.
+func (c *Cron) AddJobCC(spec string, cmd Job, cc int) error {
+	schedule, err := Parse(spec)
+	if err != nil {
+		return err
+	}
+	c.ScheduleCC(schedule, cmd, &SemaOfCron{Ctrl: true, Sema: NewSemaphore(cc)})
+	return nil
+}
+
+// Schedule with Concurrent Control
+func (c *Cron) ScheduleCC(schedule Schedule, cmd Job, sema *SemaOfCron) {
+	entry := &Entry{
+		Schedule: schedule,
+		Job:      cmd,
+		Sema:     sema,
 	}
 	if !c.running {
 		c.entries = append(c.entries, entry)
@@ -156,7 +196,22 @@ func (c *Cron) run() {
 				if e.Next != effective {
 					break
 				}
-				go e.Job.Run()
+
+				// Do its Job
+				if e.Sema.Ctrl {
+					go func() {
+						// Concurrent Control
+						if !e.Sema.Sema.TryAcquire() {
+							return
+						}
+						defer e.Sema.Sema.Release()
+
+						e.Job.Run()
+					}()
+				} else {
+					go e.Job.Run()
+				}
+
 				e.Prev = e.Next
 				e.Next = e.Schedule.Next(effective)
 			}
