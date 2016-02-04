@@ -199,7 +199,7 @@ func (c *Cron) run() {
 
 				// Do its Job
 				if e.Sema.Ctrl {
-					go func() {
+					go func(e *Entry) {
 						// Concurrent Control
 						if !e.Sema.Sema.TryAcquire() {
 							return
@@ -207,7 +207,7 @@ func (c *Cron) run() {
 						defer e.Sema.Sema.Release()
 
 						e.Job.Run()
-					}()
+					}(e)
 				} else {
 					go e.Job.Run()
 				}
