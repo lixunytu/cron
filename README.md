@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"time"
 	
-	ncron "github.com/niean/cron"
+	ncron "github.com/lixunytu/cron"
 )
 
 func main() {
